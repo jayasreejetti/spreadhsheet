@@ -1,7 +1,5 @@
 // Loads a fixture TSV into the engine starting at A1.
-// Deliberately minimal: one setCell per cell, no styling, no type coercion.
-// You may replace this with your own import path. That is fine as long as
-// both "Load" buttons keep working.
+// Fast bulk loader: loads entire TSV without intermediate undo stack clutter.
 import salesSmall from '../../fixtures/sales.tsv?raw'
 import salesLarge from '../../fixtures/sales-large.tsv?raw'
 
@@ -12,6 +10,9 @@ export function parseTsv(text) {
 }
 
 function loadTsv(engine, text) {
+    if (typeof engine.loadData === 'function') {
+        return engine.loadData(text)
+    }
     const rows = parseTsv(text)
     const cols = Math.max(...rows.map(r => r.length))
     engine.ensureCapacity(rows.length + 20, cols + 5)
