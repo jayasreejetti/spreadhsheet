@@ -12,6 +12,7 @@ const TOTAL_ROWS = 100000
 const TOTAL_COLS = 200
 const DEFAULT_ROW_HEIGHT = 25
 const DEFAULT_COL_WIDTH = 105
+const ROW_HEADER_WIDTH = 45
 const OVERSCAN_ROWS = 8
 const OVERSCAN_COLS = 3
 
@@ -35,13 +36,16 @@ export default function App() {
 
   // ── Fill Handle State ──
   // fillRange: { r1, c1, r2, c2 }
-  const [isFilling, setIsFilling] = useState(false)
+  const [, setIsFilling] = useState(false)
   const [fillRange, setFillRange] = useState(null)
+  const isFillingRef = useRef(false)
   const fillStartCoord = useRef(null)
+  const fillRangeRef = useRef(null)
 
   // ── Mouse Selection State ──
   const isMouseDown = useRef(false)
   const dragAnchor = useRef(null)
+  const normalizedSelectionRef = useRef({ r1: 0, c1: 0, r2: 0, c2: 0 })
 
   // ── Virtual Scroll State ──
   const [scrollState, setScrollState] = useState({ scrollTop: 0, scrollLeft: 0, viewportWidth: 1000, viewportHeight: 600 })
@@ -270,6 +274,10 @@ export default function App() {
     }
   }, [selection])
 
+  useEffect(() => {
+    normalizedSelectionRef.current = normalizedSelection
+  }, [normalizedSelection])
+
   const handleCellMouseDown = useCallback((r, c, e) => {
     if (editingCell) {
       commitEdit()
@@ -287,70 +295,96 @@ export default function App() {
     setSelection({ r1: r, c1: c, r2: r, c2: c })
   }, [editingCell, commitEdit])
 
-  const handleCellMouseEnter = useCallback((r, c) => {
-    if (isMouseDown.current && dragAnchor.current) {
-      setSelection({
-        r1: dragAnchor.current.r,
-        c1: dragAnchor.current.c,
-        r2: r,
-        c2: c
-      })
-    }
-    if (isFilling && fillStartCoord.current) {
-      const sel = normalizedSelection
-
-      // Determine drag direction
-      const dRow = r - sel.r2
-      const uRow = sel.r1 - r
-      const rCol = c - sel.c2
-      const lCol = sel.c1 - c
-
-      const maxDir = Math.max(dRow, uRow, rCol, lCol)
-      if (maxDir <= 0) {
-        setFillRange(null)
-      } else if (maxDir === dRow && dRow > 0) {
-        setFillRange({ r1: sel.r1, c1: sel.c1, r2: r, c2: sel.c2 })
-      } else if (maxDir === uRow && uRow > 0) {
-        setFillRange({ r1: r, c1: sel.c1, r2: sel.r2, c2: sel.c2 })
-      } else if (maxDir === rCol && rCol > 0) {
-        setFillRange({ r1: sel.r1, c1: sel.c1, r2: sel.r2, c2: c })
-      } else if (maxDir === lCol && lCol > 0) {
-        setFillRange({ r1: sel.r1, c1: c, r2: sel.r2, c2: sel.c2 })
-      }
-    }
-  }, [isFilling, normalizedSelection])
-
-  const handleMouseUp = useCallback(() => {
-    isMouseDown.current = false
-    dragAnchor.current = null
-
-    if (isFilling && fillRange) {
-      engine.fill(normalizedSelection, fillRange)
-      forceRerender()
-      setSelection(fillRange)
-      setIsFilling(false)
-      setFillRange(null)
-      fillStartCoord.current = null
-    } else {
-      setIsFilling(false)
-      setFillRange(null)
-      fillStartCoord.current = null
-    }
-  }, [isFilling, fillRange, normalizedSelection, engine, forceRerender])
-
-  useEffect(() => {
-    window.addEventListener('mouseup', handleMouseUp)
-    return () => window.removeEventListener('mouseup', handleMouseUp)
-  }, [handleMouseUp])
-
   // ────── Fill Handle Mouse Down ──────
 
   const handleFillHandleMouseDown = useCallback((e) => {
     e.stopPropagation()
     e.preventDefault()
+    isFillingRef.current = true
     setIsFilling(true)
     fillStartCoord.current = { r: normalizedSelection.r2, c: normalizedSelection.c2 }
+    fillRangeRef.current = null
+    setFillRange(null)
   }, [normalizedSelection])
+
+  // ────── Global Mouse Movement & Up (Drag Selection & Fill Handle) ──────
+
+  useEffect(() => {
+    const handleGlobalMouseMove = (e) => {
+      if (!isMouseDown.current && !isFillingRef.current) return
+      if (!gridViewportRef.current) return
+
+      const rect = gridViewportRef.current.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left + gridViewportRef.current.scrollLeft - ROW_HEADER_WIDTH
+      const mouseY = e.clientY - rect.top + gridViewportRef.current.scrollTop
+
+      const r = Math.max(0, Math.min(TOTAL_ROWS - 1, findRowAtOffset(mouseY)))
+      const c = Math.max(0, Math.min(TOTAL_COLS - 1, findColAtOffset(mouseX)))
+
+      if (isMouseDown.current && dragAnchor.current) {
+        setSelection({
+          r1: dragAnchor.current.r,
+          c1: dragAnchor.current.c,
+          r2: r,
+          c2: c
+        })
+      }
+
+      if (isFillingRef.current && fillStartCoord.current) {
+        const sel = normalizedSelectionRef.current
+
+        const dRow = r - sel.r2
+        const uRow = sel.r1 - r
+        const rCol = c - sel.c2
+        const lCol = sel.c1 - c
+
+        const maxDir = Math.max(dRow, uRow, rCol, lCol)
+        let nextRange = null
+        if (maxDir > 0) {
+          if (maxDir === dRow) {
+            nextRange = { r1: sel.r1, c1: sel.c1, r2: r, c2: sel.c2 }
+          } else if (maxDir === uRow) {
+            nextRange = { r1: r, c1: sel.c1, r2: sel.r2, c2: sel.c2 }
+          } else if (maxDir === rCol) {
+            nextRange = { r1: sel.r1, c1: sel.c1, r2: sel.r2, c2: c }
+          } else if (maxDir === lCol) {
+            nextRange = { r1: sel.r1, c1: c, r2: sel.r2, c2: sel.c2 }
+          }
+        }
+        fillRangeRef.current = nextRange
+        setFillRange(nextRange)
+      }
+    }
+
+    const handleGlobalMouseUp = () => {
+      if (isFillingRef.current) {
+        const rangeToFill = fillRangeRef.current
+        const sourceRange = normalizedSelectionRef.current
+        if (rangeToFill) {
+          engine.fill(sourceRange, rangeToFill)
+          forceRerender()
+          setSelection(rangeToFill)
+        }
+        isFillingRef.current = false
+        fillRangeRef.current = null
+        fillStartCoord.current = null
+        setIsFilling(false)
+        setFillRange(null)
+      }
+
+      if (isMouseDown.current) {
+        isMouseDown.current = false
+        dragAnchor.current = null
+      }
+    }
+
+    window.addEventListener('mousemove', handleGlobalMouseMove)
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove)
+      window.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [engine, forceRerender, findRowAtOffset, findColAtOffset])
 
   // ────── Header Selection ──────
 
@@ -380,7 +414,7 @@ export default function App() {
   const scrollToCell = useCallback((r, c) => {
     if (!gridViewportRef.current) return
     const top = getRowTop(r)
-    const left = getColLeft(c)
+    const left = ROW_HEADER_WIDTH + getColLeft(c)
     gridViewportRef.current.scrollTo({ top: Math.max(0, top - 100), left: Math.max(0, left - 100), behavior: 'auto' })
   }, [getRowTop, getColLeft])
 
@@ -859,7 +893,7 @@ export default function App() {
   const selBoxStyle = useMemo(() => {
     const sel = normalizedSelection
     const top = getRowTop(sel.r1)
-    const left = getColLeft(sel.c1)
+    const left = ROW_HEADER_WIDTH + getColLeft(sel.c1)
     let width = 0
     for (let c = sel.c1; c <= sel.c2; c++) width += getColWidth(c)
     let height = 0
@@ -876,7 +910,7 @@ export default function App() {
   const fillPreviewStyle = useMemo(() => {
     if (!fillRange) return null
     const top = getRowTop(fillRange.r1)
-    const left = getColLeft(fillRange.c1)
+    const left = ROW_HEADER_WIDTH + getColLeft(fillRange.c1)
     let width = 0
     for (let c = fillRange.c1; c <= fillRange.c2; c++) width += getColWidth(c)
     let height = 0
@@ -892,7 +926,7 @@ export default function App() {
 
   // Total canvas dimensions
   const totalGridHeight = useMemo(() => getRowTop(TOTAL_ROWS), [getRowTop])
-  const totalGridWidth = useMemo(() => getColLeft(TOTAL_COLS), [getColLeft])
+  const totalGridWidth = useMemo(() => ROW_HEADER_WIDTH + getColLeft(TOTAL_COLS), [getColLeft])
 
   return (
     <div className="app-wrapper">
@@ -1214,7 +1248,7 @@ export default function App() {
                     {/* ── Virtual Visible Column Cells in this Row ── */}
                     {Array.from({ length: virtualBounds.endCol - virtualBounds.startCol + 1 }, (_, j) => {
                       const c = virtualBounds.startCol + j
-                      const colLeft = getColLeft(c)
+                      const colLeft = ROW_HEADER_WIDTH + getColLeft(c)
                       const colWidth = getColWidth(c)
                       const isEditing = editingCell?.r === r && editingCell?.c === c
                       const isSelected = normalizedSelection.r1 <= r && r <= normalizedSelection.r2 &&
@@ -1242,7 +1276,6 @@ export default function App() {
                             backgroundColor: style.bg || 'white'
                           }}
                           onMouseDown={(e) => handleCellMouseDown(r, c, e)}
-                          onMouseEnter={() => handleCellMouseEnter(r, c)}
                           onDoubleClick={() => startEditing(r, c)}
                         >
                           {isEditing ? (

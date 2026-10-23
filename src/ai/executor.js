@@ -105,15 +105,15 @@ export function executeQueryPlan(plan, engine) {
     const startRow = 1
     const endRow = used.maxRow
 
-    // Helper to get raw and computed values fast
-    function getCellFast(r, c) {
+    // Helper to get raw and computed values fast with zero object allocations
+    function getComputedFast(r, c) {
         const rawCell = engine.getCellRaw(r, c)
-        let comp = rawCell.raw
-        if (comp && comp.startsWith('=')) {
+        const raw = rawCell.raw
+        if (raw && raw.charCodeAt(0) === 61) {
             const disp = engine.getCell(r, c)
-            comp = disp.computed !== null && disp.computed !== '' ? disp.computed : disp.raw
+            return disp.computed !== null && disp.computed !== '' ? disp.computed : disp.raw
         }
-        return { raw: rawCell.raw, computed: comp }
+        return raw
     }
 
     // Grouping state
@@ -150,6 +150,14 @@ export function executeQueryPlan(plan, engine) {
         }
     }
 
+    // Active column indices for fast row empty detection
+    const activeCols = new Set([
+        ...filterRules.map(f => f.col),
+        ...groupCols.map(g => g.col),
+        ...aggRules.map(a => a.col)
+    ])
+    const activeColArr = Array.from(activeCols)
+
     // Single-pass row iteration
     for (let r = startRow; r <= endRow; r++) {
         // Check if totals row on last row
@@ -167,23 +175,32 @@ export function executeQueryPlan(plan, engine) {
             }
         }
 
-        // Check if row is all empty
-        let allEmpty = true
-        for (let c = used.minCol; c <= used.maxCol; c++) {
-            const raw = engine.getCellRaw(r, c).raw
+        // Fast check if row has data in active columns
+        let hasData = false
+        for (let i = 0; i < activeColArr.length; i++) {
+            const raw = engine.getCellRaw(r, activeColArr[i]).raw
             if (raw && raw.trim() !== '') {
-                allEmpty = false
+                hasData = true
                 break
             }
         }
-        if (allEmpty) continue
+        if (!hasData) {
+            let allEmpty = true
+            for (let c = used.minCol; c <= used.maxCol; c++) {
+                const raw = engine.getCellRaw(r, c).raw
+                if (raw && raw.trim() !== '') {
+                    allEmpty = false
+                    break
+                }
+            }
+            if (allEmpty) continue
+        }
 
         // Check filters
         let passes = true
         for (let i = 0; i < filterRules.length; i++) {
             const f = filterRules[i]
-            const cell = getCellFast(r, f.col)
-            const cVal = cell.computed
+            const cVal = getComputedFast(r, f.col)
             const op = f.op
 
             if (op === 'isEmpty') {
@@ -234,33 +251,35 @@ export function executeQueryPlan(plan, engine) {
         // Row passed filters: aggregate or collect
         if (hasAggs) {
             let groupKey = '__ALL__'
-            let labels = []
-            if (groupCols.length > 0) {
-                const parts = new Array(groupCols.length)
-                labels = new Array(groupCols.length)
+            if (groupCols.length === 1) {
+                groupKey = norm(getComputedFast(r, groupCols[0].col))
+            } else if (groupCols.length === 2) {
+                groupKey = norm(getComputedFast(r, groupCols[0].col)) + '\x1F' + norm(getComputedFast(r, groupCols[1].col))
+            } else if (groupCols.length > 2) {
+                let k = ''
                 for (let i = 0; i < groupCols.length; i++) {
-                    const cell = getCellFast(r, groupCols[i].col)
-                    parts[i] = norm(cell.computed)
-                    labels[i] = String(cell.computed ?? '').trim()
+                    if (i > 0) k += '\x1F'
+                    k += norm(getComputedFast(r, groupCols[i].col))
                 }
-                groupKey = parts.join('\x1F')
+                groupKey = k
             }
 
             let entry = groupMap.get(groupKey)
             if (!entry) {
+                const labels = groupCols.map(g => String(getComputedFast(r, g.col) ?? '').trim())
                 entry = { labels, collectors: createAggCollectors() }
                 groupMap.set(groupKey, entry)
             }
 
             for (let i = 0; i < aggRules.length; i++) {
                 const a = aggRules[i]
-                const cell = getCellFast(r, a.col)
-                updateCollector(entry.collectors[i], a.fn, cell.computed)
+                const val = getComputedFast(r, a.col)
+                updateCollector(entry.collectors[i], a.fn, val)
             }
         } else {
             // No aggregates: project columns
             const projCols = plan.columns ? plan.columns.map(c => resolveCol(c)) : headerIndices.map(idx => ({ col: idx, name: headerNames[idx - used.minCol] }))
-            const outRow = projCols.map(p => getCellFast(r, p.col).raw)
+            const outRow = projCols.map(p => engine.getCellRaw(r, p.col).raw)
             nonAggRows.push(outRow)
         }
     }

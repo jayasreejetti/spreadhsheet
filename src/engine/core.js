@@ -23,7 +23,10 @@ export function columnLetterToIndex(columnLetter) {
     return index - 1
 }
 
+const COLUMN_LETTERS_CACHE = []
 export function indexToColumnLetter(colIndex) {
+    const cached = COLUMN_LETTERS_CACHE[colIndex]
+    if (cached) return cached
     let label = ''
     let num = colIndex + 1
     while (num > 0) {
@@ -31,6 +34,7 @@ export function indexToColumnLetter(colIndex) {
         label = String.fromCharCode(65 + (num % 26)) + label
         num = Math.floor(num / 26)
     }
+    COLUMN_LETTERS_CACHE[colIndex] = label
     return label
 }
 
@@ -62,16 +66,24 @@ export function norm(v) {
 
 export function toNum(v) {
     if (v === null || v === undefined) return null
-    if (typeof v === 'number') return isNaN(v) ? null : v
-    const s = String(v).trim()
-    if (s === '') return null
-    const isPercent = s.endsWith('%')
-    const stripped = s.replace(/[$,%\s]/g, '')
-    if (!/^-?\d+(\.\d+)?$/.test(stripped)) return null
-    let num = parseFloat(stripped)
-    if (isNaN(num)) return null
-    if (isPercent) num = num / 100
-    return num
+    if (typeof v === 'number') return Number.isNaN(v) ? null : v
+    if (typeof v === 'string') {
+        const s = v.trim()
+        if (s === '') return null
+        const fast = +s
+        if (!Number.isNaN(fast) && !s.includes('%') && !s.includes('$')) {
+            return fast
+        }
+        const isPercent = s.endsWith('%')
+        const stripped = s.replace(/[$,%\s]/g, '')
+        if (!/^-?\d+(\.\d+)?$/.test(stripped)) return null
+        let num = parseFloat(stripped)
+        if (Number.isNaN(num)) return null
+        if (isPercent) num = num / 100
+        return num
+    }
+    const n = Number(v)
+    return Number.isNaN(n) ? null : n
 }
 
 export function toDate(v) {
@@ -906,6 +918,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
     }
 
     function markCellDirty(key) {
+        cachedUsedRange = null
         const canonicalKey = key.replace(/\$/g, '').toUpperCase()
         dirtyCells.add(canonicalKey)
         const deps = graph.getDependents(canonicalKey)
@@ -1024,11 +1037,12 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         redoStack.length = 0
     }
 
+    const EMPTY_CELL = Object.freeze({ raw: '', computed: null, error: null, style: undefined })
+
     function getCellRaw(row, col) {
         const key = cellKey(row, col)
         const cell = cells.get(key)
-        if (!cell) return { raw: '', computed: null, error: null, style: undefined }
-        return { ...cell }
+        return cell || EMPTY_CELL
     }
 
     function getCellForDisplay(row, col) {
@@ -1067,21 +1081,51 @@ export function createEngine(initialRows = 50, initialCols = 50) {
 
     // ── Used range & Totals row ──
 
+    let cachedUsedRange = null
+
+    function fastCellCoords(key) {
+        let col = 0
+        let i = 0
+        const len = key.length
+        while (i < len) {
+            const code = key.charCodeAt(i)
+            if (code >= 65 && code <= 90) {
+                col = col * 26 + (code - 64)
+                i++
+            } else if (code >= 97 && code <= 122) {
+                col = col * 26 + (code - 96)
+                i++
+            } else break
+        }
+        col--
+        let row = 0
+        while (i < len) {
+            const code = key.charCodeAt(i)
+            if (code >= 48 && code <= 57) {
+                row = row * 10 + (code - 48)
+            }
+            i++
+        }
+        return { row: row - 1, col }
+    }
+
     function getUsedRange() {
+        if (cachedUsedRange) return { ...cachedUsedRange }
         let minR = rows, maxR = -1, minC = cols, maxC = -1
         for (const [key, cell] of cells.entries()) {
             if ((cell.raw && cell.raw.trim() !== '') || cell.style) {
-                const coords = cellCoords(key)
-                if (coords) {
-                    if (coords.row < minR) minR = coords.row
-                    if (coords.row > maxR) maxR = coords.row
-                    if (coords.col < minC) minC = coords.col
-                    if (coords.col > maxC) maxC = coords.col
-                }
+                const coords = fastCellCoords(key)
+                if (coords.row < minR) minR = coords.row
+                if (coords.row > maxR) maxR = coords.row
+                if (coords.col < minC) minC = coords.col
+                if (coords.col > maxC) maxC = coords.col
             }
         }
-        if (maxR === -1) return { minRow: 0, minCol: 0, maxRow: 0, maxCol: 0, rowCount: 0, colCount: 0 }
-        return {
+        if (maxR === -1) {
+            cachedUsedRange = { minRow: 0, minCol: 0, maxRow: 0, maxCol: 0, rowCount: 0, colCount: 0 }
+            return { ...cachedUsedRange }
+        }
+        cachedUsedRange = {
             minRow: minR,
             minCol: minC,
             maxRow: maxR,
@@ -1089,6 +1133,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
             rowCount: maxR - minR + 1,
             colCount: maxC - minC + 1
         }
+        return { ...cachedUsedRange }
     }
 
     function isTotalsRow(rowIndex, minCol = 0, maxCol = cols - 1) {

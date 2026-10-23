@@ -476,18 +476,29 @@ body {
   position: absolute;
   right: -5px;
   bottom: -5px;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   background: var(--primary);
-  border: 1px solid #ffffff;
+  border: 1.5px solid #ffffff;
   border-radius: 1px;
   cursor: crosshair;
   pointer-events: auto;
-  z-index: 20;
+  z-index: 25;
+}
+
+.fill-handle::after {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  width: 28px;
+  height: 28px;
+  cursor: crosshair;
 }
 
 .fill-handle:hover {
-  transform: scale(1.2);
+  transform: scale(1.25);
+  box-shadow: 0 0 4px rgba(26, 115, 232, 0.6);
 }
 
 .fill-preview-box {
