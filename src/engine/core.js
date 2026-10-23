@@ -930,6 +930,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
     }
 
     function markAllCellsDirty() {
+        cachedUsedRange = null
         for (const key of cells.keys()) dirtyCells.add(key)
     }
 
@@ -1875,6 +1876,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         dirtyCells.clear()
         undoStack.length = 0
         redoStack.length = 0
+        cachedUsedRange = null
         _generation++
 
         rowIdentities = Array.from({ length: rows }, (_, i) => i)

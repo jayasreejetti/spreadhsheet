@@ -200,15 +200,16 @@ export default function App() {
   const totalDataRows = useMemo(() => {
     void version
     const used = engine.getUsedRange()
-    return Math.max(0, used.rowCount - 1)
+    return used.rowCount
   }, [engine, version])
 
   const visibleDataRowsCount = useMemo(() => {
     void version
     if (!visibleRowsSet) return totalDataRows
+    const used = engine.getUsedRange()
     let count = 0
     for (const r of visibleRowsSet) {
-      if (r > 0 && r <= engine.getUsedRange().maxRow) count++
+      if (r >= used.minRow && r <= used.maxRow) count++
     }
     return count
   }, [visibleRowsSet, totalDataRows, engine, version])
@@ -1766,7 +1767,7 @@ export default function App() {
       <footer className="app-status-bar">
         <div className="status-left">
           <span className="status-item">
-            <strong>Rows:</strong> {visibleDataRowsCount} of {totalDataRows} visible
+            <strong>Rows:</strong> {visibleDataRowsCount.toLocaleString()} of {totalDataRows.toLocaleString()} visible
           </span>
           {activeFilterCols.length > 0 && (
             <span className="filter-badge">
