@@ -18,7 +18,7 @@ const OVERSCAN_COLS = 3
 
 export default function App() {
   const [engine] = useState(() => createEngine(TOTAL_ROWS, TOTAL_COLS))
-  const [, setVersion] = useState(0)
+  const [version, setVersion] = useState(0)
   const forceRerender = useCallback(() => setVersion(v => v + 1), [])
 
   // ── Grid Dimensions & Dynamic Sizes ──
@@ -198,30 +198,32 @@ export default function App() {
   }, [filters, activeFilterCols, engine])
 
   const totalDataRows = useMemo(() => {
+    void version
     const used = engine.getUsedRange()
     return Math.max(0, used.rowCount - 1)
-  }, [engine])
+  }, [engine, version])
 
   const visibleDataRowsCount = useMemo(() => {
+    void version
     if (!visibleRowsSet) return totalDataRows
     let count = 0
     for (const r of visibleRowsSet) {
       if (r > 0 && r <= engine.getUsedRange().maxRow) count++
     }
     return count
-  }, [visibleRowsSet, totalDataRows, engine])
+  }, [visibleRowsSet, totalDataRows, engine, version])
 
   // ────── Virtualized Slice Calculation ──────
 
   const virtualBounds = useMemo(() => {
     const { scrollTop, scrollLeft, viewportWidth, viewportHeight } = scrollState
-    const startRow = Math.max(frozenRows, findRowAtOffset(scrollTop) - OVERSCAN_ROWS)
+    const startRow = Math.max(0, findRowAtOffset(scrollTop) - OVERSCAN_ROWS)
     const endRow = Math.min(TOTAL_ROWS - 1, findRowAtOffset(scrollTop + viewportHeight) + OVERSCAN_ROWS)
     const startCol = Math.max(0, findColAtOffset(scrollLeft) - OVERSCAN_COLS)
     const endCol = Math.min(TOTAL_COLS - 1, findColAtOffset(scrollLeft + viewportWidth) + OVERSCAN_COLS)
 
     return { startRow, endRow, startCol, endCol }
-  }, [scrollState, frozenRows, findRowAtOffset, findColAtOffset])
+  }, [scrollState, findRowAtOffset, findColAtOffset])
 
   // ────── Scroll Handler ──────
 
@@ -903,9 +905,10 @@ export default function App() {
       top: `${top}px`,
       left: `${left}px`,
       width: `${width}px`,
-      height: `${height}px`
+      height: `${height}px`,
+      zIndex: sel.r1 < frozenRows ? 9 : 5
     }
-  }, [normalizedSelection, getRowTop, getColLeft, getColWidth, getRowHeight])
+  }, [normalizedSelection, getRowTop, getColLeft, getColWidth, getRowHeight, frozenRows])
 
   const fillPreviewStyle = useMemo(() => {
     if (!fillRange) return null
@@ -1131,54 +1134,61 @@ export default function App() {
       {/* ── Main Viewport Container with Virtual Grid and AI Side Panel ── */}
       <div className="workspace-body">
         <div className="grid-outer-container">
-          {/* ── Frozen Header Row (Scrolls horizontally with body) ── */}
-          <div
-            className="frozen-header-row"
-            style={{ transform: `translateX(-${scrollState.scrollLeft}px)` }}
-          >
+          {/* ── Frozen Header Container ── */}
+          <div className="frozen-header-row">
             <div className="corner-header-cell">#</div>
-            {Array.from({ length: TOTAL_COLS }, (_, c) => {
-              const width = getColWidth(c)
-              const isColSorted = sortState.col === c
-              const hasFilter = !!filters[c]
-              return (
-                <div
-                  key={c}
-                  className={`col-header-cell ${isColSorted ? 'sorted' : ''} ${hasFilter ? 'filtered' : ''}`}
-                  style={{ width: `${width}px` }}
-                  onClick={() => selectEntireColumn(c)}
-                  title={`Click to select column ${indexToColumnLetter(c)}. Click arrow to sort.`}
-                >
-                  <span className="col-letter">{indexToColumnLetter(c)}</span>
-                  <button
-                    className={`sort-arrow-btn ${isColSorted ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleHeaderClick(c)
-                    }}
-                    title="Click to sort (Asc / Desc / Original)"
-                  >
-                    {isColSorted ? (sortState.dir === 'asc' ? '▲' : sortState.dir === 'desc' ? '▼' : '↺') : '⇅'}
-                  </button>
-                  <button
-                    className={`filter-icon-btn ${hasFilter ? 'active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setOpenFilterCol(openFilterCol === c ? null : c)
-                    }}
-                    title="Filter this column"
-                  >
-                    ▼
-                  </button>
-                  <div
-                    className="col-resize-handle"
-                    onMouseDown={(e) => handleColResizeMouseDown(c, e)}
-                    onDoubleClick={(e) => handleColAutoFit(c, e)}
-                    title="Drag to resize, double-click to auto-fit"
-                  />
-                </div>
-              )
-            })}
+            <div className="col-headers-viewport">
+              <div
+                className="col-headers-track"
+                style={{
+                  transform: `translateX(-${scrollState.scrollLeft}px)`,
+                  width: `${totalGridWidth - ROW_HEADER_WIDTH}px`
+                }}
+              >
+                {Array.from({ length: TOTAL_COLS }, (_, c) => {
+                  const width = getColWidth(c)
+                  const isColSorted = sortState.col === c
+                  const hasFilter = !!filters[c]
+                  return (
+                    <div
+                      key={c}
+                      className={`col-header-cell ${isColSorted ? 'sorted' : ''} ${hasFilter ? 'filtered' : ''}`}
+                      style={{ width: `${width}px`, minWidth: `${width}px` }}
+                      onClick={() => selectEntireColumn(c)}
+                      title={`Click to select column ${indexToColumnLetter(c)}. Click arrow to sort.`}
+                    >
+                      <span className="col-letter">{indexToColumnLetter(c)}</span>
+                      <button
+                        className={`sort-arrow-btn ${isColSorted ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleHeaderClick(c)
+                        }}
+                        title="Click to sort (Asc / Desc / Original)"
+                      >
+                        {isColSorted ? (sortState.dir === 'asc' ? '▲' : sortState.dir === 'desc' ? '▼' : '↺') : '⇅'}
+                      </button>
+                      <button
+                        className={`filter-icon-btn ${hasFilter ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenFilterCol(openFilterCol === c ? null : c)
+                        }}
+                        title="Filter this column"
+                      >
+                        ▼
+                      </button>
+                      <div
+                        className="col-resize-handle"
+                        onMouseDown={(e) => handleColResizeMouseDown(c, e)}
+                        onDoubleClick={(e) => handleColAutoFit(c, e)}
+                        title="Drag to resize, double-click to auto-fit"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
 
           {/* ── Virtual Grid Scrollport ── */}
@@ -1205,24 +1215,24 @@ export default function App() {
                 <div className="fill-preview-box" style={fillPreviewStyle} />
               )}
 
-              {/* ── Render Virtual Visible Rows ── */}
-              {Array.from({ length: virtualBounds.endRow - virtualBounds.startRow + 1 }, (_, i) => {
-                const r = virtualBounds.startRow + i
+              {/* ── Render Frozen Rows (Sticky at Top) ── */}
+              {frozenRows > 0 && Array.from({ length: frozenRows }, (_, r) => {
                 if (visibleRowsSet && !visibleRowsSet.has(r)) return null
-
                 const rowTop = getRowTop(r)
                 const rowHeight = getRowHeight(r)
 
                 return (
                   <div
-                    key={r}
-                    className="virtual-row"
+                    key={`frozen-${r}`}
+                    className="virtual-row frozen-row"
                     style={{
-                      position: 'absolute',
+                      position: 'sticky',
                       top: `${rowTop}px`,
                       left: 0,
                       width: `${totalGridWidth}px`,
-                      height: `${rowHeight}px`
+                      height: `${rowHeight}px`,
+                      zIndex: 8,
+                      backgroundColor: '#f8f9fa'
                     }}
                   >
                     {/* ── Row Header Cell (Frozen on Left) ── */}
@@ -1232,10 +1242,11 @@ export default function App() {
                         position: 'sticky',
                         left: 0,
                         height: `${rowHeight}px`,
-                        zIndex: 2
+                        zIndex: 10,
+                        fontWeight: 600
                       }}
                       onClick={() => selectEntireRow(r)}
-                      title={`Row ${r + 1}`}
+                      title={`Row ${r + 1} (Frozen)`}
                     >
                       <span>{r + 1}</span>
                       <div
@@ -1245,7 +1256,7 @@ export default function App() {
                       />
                     </div>
 
-                    {/* ── Virtual Visible Column Cells in this Row ── */}
+                    {/* ── Virtual Visible Column Cells in this Frozen Row ── */}
                     {Array.from({ length: virtualBounds.endCol - virtualBounds.startCol + 1 }, (_, j) => {
                       const c = virtualBounds.startCol + j
                       const colLeft = ROW_HEADER_WIDTH + getColLeft(c)
@@ -1267,13 +1278,13 @@ export default function App() {
                             left: `${colLeft}px`,
                             width: `${colWidth}px`,
                             height: `${rowHeight}px`,
-                            fontWeight: style.bold ? 'bold' : 'normal',
+                            fontWeight: style.bold !== undefined ? (style.bold ? 'bold' : 'normal') : '600',
                             fontStyle: style.italic ? 'italic' : 'normal',
                             textDecoration: style.underline ? 'underline' : 'none',
                             color: cellData.error ? '#d93025' : (style.color || '#202124'),
                             fontSize: `${style.fontSize || 13}px`,
                             textAlign: style.align || 'left',
-                            backgroundColor: style.bg || 'white'
+                            backgroundColor: style.bg || '#f8f9fa'
                           }}
                           onMouseDown={(e) => handleCellMouseDown(r, c, e)}
                           onDoubleClick={() => startEditing(r, c)}
@@ -1303,6 +1314,108 @@ export default function App() {
                   </div>
                 )
               })}
+
+              {/* ── Render Virtual Visible Scrollable Rows ── */}
+              {Array.from(
+                { length: Math.max(0, virtualBounds.endRow - Math.max(frozenRows, virtualBounds.startRow) + 1) },
+                (_, i) => {
+                  const r = Math.max(frozenRows, virtualBounds.startRow) + i
+                  if (visibleRowsSet && !visibleRowsSet.has(r)) return null
+
+                  const rowTop = getRowTop(r)
+                  const rowHeight = getRowHeight(r)
+
+                  return (
+                    <div
+                      key={r}
+                      className="virtual-row"
+                      style={{
+                        position: 'absolute',
+                        top: `${rowTop}px`,
+                        left: 0,
+                        width: `${totalGridWidth}px`,
+                        height: `${rowHeight}px`
+                      }}
+                    >
+                      {/* ── Row Header Cell (Frozen on Left) ── */}
+                      <div
+                        className="row-header-cell"
+                        style={{
+                          position: 'sticky',
+                          left: 0,
+                          height: `${rowHeight}px`,
+                          zIndex: 2
+                        }}
+                        onClick={() => selectEntireRow(r)}
+                        title={`Row ${r + 1}`}
+                      >
+                        <span>{r + 1}</span>
+                        <div
+                          className="row-resize-handle"
+                          onMouseDown={(e) => handleRowResizeMouseDown(r, e)}
+                          title="Drag to resize row height"
+                        />
+                      </div>
+
+                      {/* ── Virtual Visible Column Cells in this Row ── */}
+                      {Array.from({ length: virtualBounds.endCol - virtualBounds.startCol + 1 }, (_, j) => {
+                        const c = virtualBounds.startCol + j
+                        const colLeft = ROW_HEADER_WIDTH + getColLeft(c)
+                        const colWidth = getColWidth(c)
+                        const isEditing = editingCell?.r === r && editingCell?.c === c
+                        const isSelected = normalizedSelection.r1 <= r && r <= normalizedSelection.r2 &&
+                                           normalizedSelection.c1 <= c && c <= normalizedSelection.c2
+
+                        const cellData = engine.getCell(r, c)
+                        const displayVal = engine.getFormatDisplay(r, c)
+                        const style = cellData.style || {}
+
+                        return (
+                          <div
+                            key={c}
+                            className={`virtual-cell ${isSelected ? 'selected' : ''} ${cellData.error ? 'error' : ''}`}
+                            style={{
+                              position: 'absolute',
+                              left: `${colLeft}px`,
+                              width: `${colWidth}px`,
+                              height: `${rowHeight}px`,
+                              fontWeight: style.bold ? 'bold' : 'normal',
+                              fontStyle: style.italic ? 'italic' : 'normal',
+                              textDecoration: style.underline ? 'underline' : 'none',
+                              color: cellData.error ? '#d93025' : (style.color || '#202124'),
+                              fontSize: `${style.fontSize || 13}px`,
+                              textAlign: style.align || 'left',
+                              backgroundColor: style.bg || 'white'
+                            }}
+                            onMouseDown={(e) => handleCellMouseDown(r, c, e)}
+                            onDoubleClick={() => startEditing(r, c)}
+                          >
+                            {isEditing ? (
+                              <input
+                                ref={cellInputRef}
+                                className="cell-editor-input"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={commitEdit}
+                                style={{
+                                  fontWeight: style.bold ? 'bold' : 'normal',
+                                  fontStyle: style.italic ? 'italic' : 'normal',
+                                  textDecoration: style.underline ? 'underline' : 'none',
+                                  color: style.color || '#202124',
+                                  fontSize: `${style.fontSize || 13}px`,
+                                  textAlign: style.align || 'left'
+                                }}
+                              />
+                            ) : (
+                              <div className="cell-content-text">{displayVal}</div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+              )}
             </div>
           </div>
         </div>

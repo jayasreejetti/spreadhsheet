@@ -294,14 +294,31 @@ body {
   border-bottom: 1px solid var(--border-subtle);
   position: relative;
   z-index: 10;
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
+}
+
+.col-headers-viewport {
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+  position: relative;
+}
+
+.col-headers-track {
+  display: flex;
+  height: 100%;
   will-change: transform;
 }
 
 .corner-header-cell {
-  position: sticky;
-  left: 0;
+  position: relative;
   width: 45px;
   min-width: 45px;
+  max-width: 45px;
+  flex-shrink: 0;
+  box-sizing: border-box;
   background: #eef1f4;
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
@@ -328,6 +345,8 @@ body {
   cursor: pointer;
   user-select: none;
   padding: 0 4px;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .col-header-cell:hover {
@@ -351,6 +370,22 @@ body {
 .sort-arrow {
   font-size: 10px;
   margin-right: 2px;
+}
+
+.sort-arrow-btn {
+  background: transparent;
+  border: none;
+  font-size: 10px;
+  color: #80868b;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 2px;
+  margin-right: 2px;
+}
+
+.sort-arrow-btn.active, .sort-arrow-btn:hover {
+  color: var(--primary);
+  background: rgba(26, 115, 232, 0.15);
 }
 
 .filter-icon-btn {
@@ -395,9 +430,16 @@ body {
   border-bottom: 1px solid var(--grid-line);
 }
 
+.virtual-row.frozen-row {
+  border-bottom: 2px solid #b0b7c3;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
 .row-header-cell {
   width: 45px;
   min-width: 45px;
+  flex-shrink: 0;
+  box-sizing: border-box;
   background: var(--header-bg);
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--grid-line);
@@ -429,12 +471,14 @@ body {
 .virtual-cell {
   position: absolute;
   border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
   display: flex;
   align-items: center;
   padding: 0 4px;
   overflow: hidden;
   font-size: 13px;
   line-height: 1.2;
+  box-sizing: border-box;
 }
 
 .virtual-cell.selected {
