@@ -753,7 +753,7 @@ export default function App() {
 
       const response = await aiProvider.complete({
         system: systemPrompt,
-        user: userPrompt
+        user: aiProvider.name === 'mock' ? textToSend : userPrompt
       })
 
       const validation = parseAndValidateResponse(response.text, ['query', 'format_sheet', 'clarify'])

@@ -34,7 +34,26 @@ export function createMockProvider() {
         name: 'mock',
         async complete({ user }) {
             await new Promise(resolve => setTimeout(resolve, 150)) // pretend to be a network call
-            const hit = TABLE.get(normalize(user))
+            const rawUser = String(user || '')
+            const directNorm = normalize(rawUser)
+            let hit = TABLE.get(directNorm)
+
+            if (!hit) {
+                const match = rawUser.match(/User Prompt:\s*([^\n\r]+)/i)
+                if (match) {
+                    hit = TABLE.get(normalize(match[1]))
+                }
+            }
+
+            if (!hit) {
+                for (const [key, val] of TABLE.entries()) {
+                    if (directNorm.includes(key) || key.includes(directNorm)) {
+                        hit = val
+                        break
+                    }
+                }
+            }
+
             if (hit) return { text: wrap(hit), provider: 'mock' }
             return {
                 text: wrap({
